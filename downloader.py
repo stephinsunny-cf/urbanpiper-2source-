@@ -262,9 +262,6 @@ def generate_and_download_csv(session, report_def, time_period="YESTERDAY", poll
                 "exportFormat": config.EXPORT_FORMAT,
                 "emails":       [notify_email],
                 "filters": {
-                    "platforms":   config.PLATFORMS,
-                    "locations":   location_ids,
-                    "orderStates": config.ORDER_STATES,
                     "timePeriod":  time_period,
                 },
                 "newVersion": True,
