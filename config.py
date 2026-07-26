@@ -33,7 +33,7 @@ REPORTS = [
     },
     {
         "id": "codex##4",
-        "name": "Order Status Transitions"
+        "name": "Order status transitions"
     }
 ]
 
