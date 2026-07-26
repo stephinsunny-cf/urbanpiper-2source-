@@ -293,8 +293,8 @@ def generate_and_download_csv(session, report_def, time_period="YESTERDAY", poll
             jid = task.get("jobId", "")
             if jid in existing_ids:
                 continue
-            # Also ensure the name matches in case another report was queued simultaneously
-            if task.get("name") == report_def['name']:
+            # UrbanPiper backend appends " csv" to the task name in the response!
+            if task.get("name", "").startswith(report_def['name']):
                 found_job = task
                 break
 
