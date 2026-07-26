@@ -29,7 +29,7 @@ ATLAS_GRAPHQL_URL = "https://atlas-backend.svc.urbanpiper.com/graphql"
 REPORTS = [
     {
         "id": "codex##1",
-        "name": "Order Transactions"
+        "name": "Order transactions"
     },
     {
         "id": "codex##4",
