@@ -250,6 +250,9 @@ def generate_and_download_csv(session, report_def, time_period="YESTERDAY", poll
     notify_email = config.UP_EMAIL
     log.info(f"Queuing report '{report_def['name']}' ({report_def['id']}) | timePeriod={time_period}")
 
+    business = os.environ.get("BUSINESS_NAME", "Eatfit - MOC").strip().lower()
+    location_ids = [] if ("cakezone" in business or "cake zone" in business) else config.LOCATION_IDS
+
     payload = {
         "operationName": "generateReport",
         "variables": {
@@ -260,7 +263,7 @@ def generate_and_download_csv(session, report_def, time_period="YESTERDAY", poll
                 "emails":       [notify_email],
                 "filters": {
                     "platforms":   config.PLATFORMS,
-                    "locations":   config.LOCATION_IDS,
+                    "locations":   location_ids,
                     "orderStates": config.ORDER_STATES,
                     "timePeriod":  time_period,
                 },
