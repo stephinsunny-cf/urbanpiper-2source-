@@ -1,0 +1,55 @@
+name: UrbanPiper Automated 2-Source Reports
+
+on:
+  schedule:
+    # Runs every day at 02:30 UTC (8:00 AM IST)
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      business:
+        description: 'Which business to run (Eatfit - MOC by default)'
+        required: false
+        default: 'Eatfit - MOC'
+        type: string
+
+jobs:
+  send-reports:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright Chromium
+        run: python -m playwright install chromium --with-deps
+
+      - name: Run automation
+        env:
+          UP_EMAIL:          ${{ secrets.UP_EMAIL }}
+          UP_PASSWORD:       ${{ secrets.UP_PASSWORD }}
+          GMAIL_CREDENTIALS: ${{ secrets.GMAIL_CREDENTIALS }}
+          GMAIL_TOKEN:       ${{ secrets.GMAIL_TOKEN }}
+          REPORT_EMAILS:     ${{ secrets.REPORT_EMAILS }}
+          BUSINESS_NAME:     ${{ github.event.inputs.business || 'Eatfit - MOC' }}
+        run: python main.py
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: automation-failure-log
+          path: |
+            *.log
+            *.png
+          if-no-files-found: ignore
+          retention-days: 7
