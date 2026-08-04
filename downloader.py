@@ -5,11 +5,19 @@ import time
 import requests
 import logging
 
+def _get_log_path():
+    """Write logs next to the .exe when frozen, or next to the script when developing."""
+    if getattr(sys, 'frozen', False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "report_log.txt")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.StreamHandler(sys.stdout)
+        logging.FileHandler(_get_log_path(), encoding="utf-8"),
     ]
 )
 log = logging.getLogger(__name__)
@@ -25,8 +33,13 @@ except ImportError:
 #  SESSION MANAGEMENT
 # ==============================================================================
 
+def get_base_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
 def load_cached_session():
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), config.SESSION_FILE)
+    path = os.path.join(get_base_dir(), config.SESSION_FILE)
     if os.path.exists(path):
         try:
             with open(path) as f:
@@ -41,14 +54,14 @@ def load_cached_session():
 
 
 def save_session(session):
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), config.SESSION_FILE)
+    path = os.path.join(get_base_dir(), config.SESSION_FILE)
     with open(path, "w") as f:
         json.dump(session, f)
     log.info("Session saved (token present: {}).".format(bool(session.get("token"))))
 
 
 def delete_session():
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), config.SESSION_FILE)
+    path = os.path.join(get_base_dir(), config.SESSION_FILE)
     if os.path.exists(path):
         os.remove(path)
         log.info("Cached session deleted.")
@@ -63,10 +76,39 @@ def login_and_get_session():
     log.info("Starting browser login...")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--window-size=1280,800",
+            ]
         )
+        context = browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            locale="en-US",
+            timezone_id="Asia/Kolkata",
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            ),
+            java_script_enabled=True,
+            ignore_https_errors=True,
+            extra_http_headers={
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+        )
+
+        # Hide webdriver property to avoid bot detection
+        context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        """)
+
         page = context.new_page()
 
         captured_token = {"value": None}
@@ -89,21 +131,27 @@ def login_and_get_session():
         page.on("response", handle_response)
 
         try:
-            page.goto(config.ATLAS_LOGIN_URL, wait_until="commit", timeout=30000)
+            # Use 'load' instead of 'commit' so Cloudflare challenge fully resolves
+            page.goto(config.ATLAS_LOGIN_URL, wait_until="load", timeout=60000)
+            # Extra wait for any JS-based redirects/challenges to settle
+            page.wait_for_timeout(3000)
             log.info("Initial URL: {}".format(page.url))
 
             email_sel = (
-                "input[type=email], input[type=text], input[name=email], "
-                "input[name=username], input[placeholder*=mail i], "
-                "input[placeholder*=mobile i], input[placeholder*=email i], "
-                "input:not([type=hidden])"
+                "input[type=email]:visible, input[type=text]:visible, input[name=email]:visible, "
+                "input[name=username]:visible, input[name=email_mobile]:visible, "
+                "input[placeholder*=mail i]:visible, input[placeholder*=mobile i]:visible, "
+                "input[placeholder*=email i]:visible"
             )
-            page.wait_for_selector(email_sel, state="visible", timeout=45000)
-            page.locator(email_sel).first.fill(config.UP_EMAIL)
+            page.wait_for_selector(email_sel, state="visible", timeout=60000)
+            # Slow human-like typing instead of instant fill
+            page.locator(email_sel).first.click()
+            page.keyboard.type(config.UP_EMAIL, delay=80)
             page.locator("button[type=submit], input[type=submit]").first.click()
 
             page.wait_for_selector("input[type=password]", state="visible", timeout=30000)
-            page.locator("input[type=password]").first.fill(config.UP_PASSWORD)
+            page.locator("input[type=password]").first.click()
+            page.keyboard.type(config.UP_PASSWORD, delay=80)
             page.locator("button[type=submit], input[type=submit]").first.click()
 
             try:
@@ -274,10 +322,15 @@ def generate_and_download_csv(session, report_def, time_period="YESTERDAY", poll
     r.raise_for_status()
     resp_json = r.json()
 
-    if resp_json.get("data") is None:
-        raise RuntimeError(f"generateReportV2 failed (data=null). errors={resp_json.get('errors')}")
+    if resp_json.get("data") is None and resp_json.get("errors"):
+        raise RuntimeError(f"GraphQL Error: {resp_json.get('errors')}")
 
-    gql = (resp_json.get("data") or {}).get("generateReportV2", {}).get("status", {})
+    data_block = resp_json.get("data") or {}
+    gen_report = data_block.get("generateReportV2")
+    if gen_report is None:
+        raise RuntimeError(f"generateReportV2 returned null. Response: {resp_json}")
+
+    gql = gen_report.get("status", {})
     if not gql.get("success"):
         raise RuntimeError(f"generateReportV2 failed: {gql.get('messages')}")
 
