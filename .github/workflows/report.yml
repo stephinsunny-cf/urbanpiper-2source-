@@ -38,7 +38,7 @@ jobs:
           UP_PASSWORD:       ${{ secrets.UP_PASSWORD }}
           GMAIL_CREDENTIALS: ${{ secrets.GMAIL_CREDENTIALS }}
           GMAIL_TOKEN:       ${{ secrets.GMAIL_TOKEN }}
-          REPORT_EMAILS:     ${{ secrets.REPORT_EMAILS }}
+          REPORT_EMAILS:     "prakash.d@curefoods.in,hanumakirti@curefoods.in"
           BUSINESS_NAME:     ${{ github.event.inputs.business || 'Eatfit - MOC' }}
         run: python main.py
 
